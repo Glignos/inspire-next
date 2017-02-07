@@ -22,9 +22,8 @@
 
 from __future__ import absolute_import, division, print_function
 
-import pytest
-
 from dojson.contrib.marc21.utils import create_record
+from jsonschema.exceptions import ValidationError
 
 from inspire_schemas.utils import load_schema
 from inspirehep.dojson.hep import hep, hep2marc
@@ -43,7 +42,7 @@ def test_isbns_from_020__a():
 
     expected = [
         {
-            'value': '978-0-19-875971-3',
+            'value': '9780198759713',
         },
     ]
     result = hep.do(create_record(snippet))
@@ -53,7 +52,7 @@ def test_isbns_from_020__a():
 
     expected = [
         {
-            'a': '978-0-19-875971-3',
+            'a': '9780198759713',
         },
     ]
     result = hep2marc.do(result)
@@ -74,7 +73,7 @@ def test_isbns_from_020__a_b_normalizes_online():
 
     expected = [
         {
-            'value': '978-94-024-0999-4',
+            'value': '9789402409994',
             'medium': 'online',
         },
     ]
@@ -85,7 +84,7 @@ def test_isbns_from_020__a_b_normalizes_online():
 
     expected = [
         {
-            'a': '978-94-024-0999-4',
+            'a': '9789402409994',
             'b': 'online',
         },
     ]
@@ -107,7 +106,7 @@ def test_isbns_from_020__a_b_normalizes_print():
 
     expected = [
         {
-            'value': '978-1-78634-110-5',
+            'value': '9781786341105',
             'medium': 'print',
         },
     ]
@@ -118,7 +117,7 @@ def test_isbns_from_020__a_b_normalizes_print():
 
     expected = [
         {
-            'a': '978-1-78634-110-5',
+            'a': '9781786341105',
             'b': 'print',
         },
     ]
@@ -140,9 +139,7 @@ def test_isbns_from_020__a_b_normalizes_electronic():
 
     expected = [
         {
-            'value': '978-3-319-00626-0',
-            'medium': 'online',
-            'comment': 'electronic',
+            'value': '9783319006260',
         },
     ]
     result = hep.do(create_record(snippet))
@@ -152,8 +149,7 @@ def test_isbns_from_020__a_b_normalizes_electronic():
 
     expected = [
         {
-            'a': '978-3-319-00626-0',
-            'b': 'online',
+            'a': '9783319006260',
         },
     ]
     result = hep2marc.do(result)
@@ -174,9 +170,8 @@ def test_isbns_from_020__a_b_normalizes_ebook():
 
     expected = [
         {
-            'value': '978-3-319-25901-7',
+            'value': '9783319259017',
             'medium': 'online',
-            'comment': 'ebook',
         },
     ]
     result = hep.do(create_record(snippet))
@@ -186,7 +181,7 @@ def test_isbns_from_020__a_b_normalizes_ebook():
 
     expected = [
         {
-            'a': '978-3-319-25901-7',
+            'a': '9783319259017',
             'b': 'online',
         },
     ]
@@ -208,9 +203,8 @@ def test_isbns_from_020__a_b_normalizes_hardcover():
 
     expected = [
         {
-            'value': '978-981-4571-66-1',
-            'medium': 'print',
-            'comment': 'hardcover',
+            'value': '9789814571661',
+            'medium': 'hardcover',
         },
     ]
     result = hep.do(create_record(snippet))
@@ -220,8 +214,8 @@ def test_isbns_from_020__a_b_normalizes_hardcover():
 
     expected = [
         {
-            'a': '978-981-4571-66-1',
-            'b': 'print',
+            'a': '9789814571661',
+            'b': 'hardcover',
         },
     ]
     result = hep2marc.do(result)
@@ -243,7 +237,7 @@ def test_persistent_identifiers_from_0247_a_2_corrects_to_hdl():
     expected = [
         {
             'value': '2027.42/97915',
-            'type': 'HDL',
+            'schema': 'HDL',
         },
     ]
     result = hep.do(create_record(snippet))  # no roundtrip
@@ -260,7 +254,7 @@ def test_persistent_identifiers_from_0247_a_2_corrects_to_hdl():
     ]
     result = hep2marc.do(result)
 
-    assert expected == result['024']
+    assert expected == result['0247']
 
 
 def test_dois_from_0247_a_2_double_9_ignores_curator_source():
@@ -296,7 +290,7 @@ def test_dois_from_0247_a_2_double_9_ignores_curator_source():
     ]
     result = hep2marc.do(result)
 
-    assert expected == result['024']
+    assert expected == result['0247']
 
 
 def test_dois_from_0247_a_2():
@@ -326,7 +320,7 @@ def test_dois_from_0247_a_2():
     ]
     result = hep2marc.do(result)
 
-    assert expected == result['024']
+    assert expected == result['0247']
 
 
 def test_dois_from_0247_a_2_9_and_0247_a_2():
@@ -374,7 +368,7 @@ def test_dois_from_0247_a_2_9_and_0247_a_2():
     ]
     result = hep2marc.do(result)
 
-    assert expected == result['024']
+    assert expected == result['0247']
 
 
 def test_dois_from_0247_a_2_and_0247_a_2_9():
@@ -422,43 +416,12 @@ def test_dois_from_0247_a_2_and_0247_a_2_9():
     ]
     result = hep2marc.do(result)
 
-    assert expected == result['024']
+    assert expected == result['0247']
 
 
-@pytest.mark.xfail(reason='wrong roundtrip')
-def test_external_system_numbers_from_035__a():
+def test_texkeys_from_035__a_9():
     schema = load_schema('hep')
-    subschema = schema['properties']['external_system_numbers']
-
-    snippet = (
-        '<datafield tag="035" ind1=" " ind2=" ">'
-        '  <subfield code="a">0248362CERCER</subfield>'
-        '</datafield>'
-    )  # record/1403324
-
-    expected = [
-        {
-            'value': '0248362CERCER',
-            'obsolete': False,
-        },
-    ]
-    result = hep.do(create_record(snippet))
-
-    assert validate(result['external_system_numbers'], subschema) is None
-    assert expected == result['external_system_numbers']
-
-    expected = [
-        {'a': '0248362CERCER'},
-    ]
-    result = hep2marc.do(result)
-
-    assert expected == result['035']
-
-
-@pytest.mark.xfail(reason='wrong roundtrip')
-def test_external_system_numbers_from_035__a_9():
-    schema = load_schema('hep')
-    subschema = schema['properties']['external_system_numbers']
+    subschema = schema['properties']['texkeys']
 
     snippet = (
         '<datafield tag="035" ind1=" " ind2=" ">'
@@ -468,16 +431,12 @@ def test_external_system_numbers_from_035__a_9():
     )  # record/1403324
 
     expected = [
-        {
-            'value': 'Hagedorn:1963hdh',
-            'institute': 'INSPIRETeX',
-            'obsolete': False,
-        },
+        'Hagedorn:1963hdh',
     ]
     result = hep.do(create_record(snippet))
 
-    assert validate(result['external_system_numbers'], subschema) is None
-    assert expected == result['external_system_numbers']
+    assert validate(result['texkeys'], subschema) is None
+    assert expected == result['texkeys']
 
     expected = [
         {
@@ -490,7 +449,6 @@ def test_external_system_numbers_from_035__a_9():
     assert expected == result['035']
 
 
-@pytest.mark.xfail(reason='Schema 13')
 def test_texkeys_from_multiple_035__a_z_9():
     '''035__9:INSPIRETeX or SPIRESTeX go to texkeys'''
     schema = load_schema('hep')
@@ -507,49 +465,56 @@ def test_texkeys_from_multiple_035__a_z_9():
             <subfield code="a">Akiba:2016ofq</subfield>
           </datafield>
         </record>
-    ''' # record/1498308
+    '''  # record/1498308
 
     # the first is the one containing the a, the rest is from the z
-    expected_head = ['Akiba:2016ofq', 'N.Cartiglia:2015cn']
+    expected = [
+        'Akiba:2016ofq',
+        'N.Cartiglia:2015cn',
+    ]
     result = hep.do(create_record(snippet))
 
     assert validate(result['texkeys'], subschema) is None
     assert expected == result['texkeys']
-    assert [{}] == result['external_system_identifiers']
 
     expected = [
-        {'9': 'INSPIRETeX', 'a': 'Akiba:2016ofq'},
-        {'9': 'INSPIRETeX', 'z': 'N.Cartiglia:2015cn'}
+        {
+            '9': 'INSPIRETeX',
+            'a': 'Akiba:2016ofq',
+        },
+        {
+            '9': 'INSPIRETeX',
+            'z': 'N.Cartiglia:2015cn',
+        }
     ]
     result = hep2marc.do(result)
 
-    assert sorted(expected) == sorted(result['035'])
+    assert expected == result['035']
 
 
-@pytest.mark.xfail(reason='Schema 13')
 def test_discard_035__9_arXiv():
     '''035__9:arXiv is redundant with 037__9:arXiv, throw it away'''
     schema = load_schema('hep')
+    subschema = schema['properties']['external_system_identifiers']
 
     snippet = '''
         <datafield tag="035" ind1=" " ind2=" ">
           <subfield code="9">arXiv</subfield>
           <subfield code="a">oai:arXiv.org:1611.05079</subfield>
         </datafield>
-    ''' # record/1498308
+    '''  # record/1498308
 
-    expected = [{}]
     result = hep.do(create_record(snippet))
 
-    assert validate(result, schema) is None
-    assert expected == result['external_system_identifiers']
-    assert expected == result['arxiv_eprints']
+    try:
+        validate(result.get('external_system_identifiers'), subschema)
+    except ValidationError:
+        assert True
 
 
-@pytest.mark.xfail(reason='wrong roundtrip')
 def test_external_system_numbers_from_035__a_d_h_m_9():
     schema = load_schema('hep')
-    subschema = schema['properties']['external_system_numbers']
+    subschema = schema['properties']['external_system_identifiers']
 
     snippet = (
         '<datafield tag="035" ind1=" " ind2=" ">'
@@ -564,14 +529,13 @@ def test_external_system_numbers_from_035__a_d_h_m_9():
     expected = [
         {
             'value': 'oai:cds.cern.ch:325030',
-            'institute': 'http://cds.cern.ch/oai2d',
-            'obsolete': False,
+            'schema': 'http://cds.cern.ch/oai2d',
         }
     ]
     result = hep.do(create_record(snippet))
 
-    assert validate(result['external_system_numbers'], subschema) is None
-    assert expected == result['external_system_numbers']
+    assert validate(result['external_system_identifiers'], subschema) is None
+    assert expected == result['external_system_identifiers']
 
     expected = [
         {
@@ -601,7 +565,7 @@ def test_arxiv_eprints_from_037__a_c_9():
             'categories': [
                 'hep-ph',
             ],
-            'value': 'arXiv:1505.01843',
+            'value': '1505.01843',
         },
     ]
     result = hep.do(create_record(snippet))
@@ -611,11 +575,9 @@ def test_arxiv_eprints_from_037__a_c_9():
 
     expected = [
         {
-            'a': 'arXiv:1505.01843',
-            'c': [
-                'hep-ph',
-            ],
             '9': 'arXiv',
+            'a': 'arXiv:1505.01843',
+            'c': 'hep-ph',
         },
     ]
     result = hep2marc.do(result)
@@ -678,31 +640,29 @@ def test_report_numbers_from_two_037__a():
     assert expected == result['report_numbers']
 
     expected = [
-        {
-            'a': 'UTPT-89-27',
-        },
-        {
-            'a': 'CALT-68-1585',
-        },
+        {'a': 'UTPT-89-27'},
+        {'a': 'CALT-68-1585'},
     ]
     result = hep2marc.do(result)
 
     assert expected == result['037']
 
 
-@pytest.mark.xfail(reason='Schema 13')
 def test_report_numbers_hidden_from_037__z():
     schema = load_schema('hep')
     subschema = schema['properties']['report_numbers']
 
-    snippet = '''
-        <datafield tag="037" ind1=" " ind2=" ">
-          <subfield code="z">FERMILAB-PUB-17-011-CMS</subfield>
-        </datafield>
-    ''' # record/1508174
+    snippet = (
+        '<datafield tag="037" ind1=" " ind2=" ">'
+        '  <subfield code="z">FERMILAB-PUB-17-011-CMS</subfield>'
+        '</datafield>'
+    )  # record/1508174
 
     expected = [
-        {'hidden': True, 'value': 'FERMILAB-PUB-17-011-CMS'}
+        {
+            'hidden': True,
+            'value': 'FERMILAB-PUB-17-011-CMS',
+        },
     ]
     result = hep.do(create_record(snippet))
 
@@ -717,51 +677,67 @@ def test_report_numbers_hidden_from_037__z():
     assert expected == result['037']
 
 
-@pytest.mark.xfail(reason='Schema 13')
-def test_report_numbers_source_from_037__z_9():
+def test_report_numbers_from_037__z_9():
     schema = load_schema('hep')
     subschema = schema['properties']['report_numbers']
 
-    snippet = '''
-        <datafield tag="037" ind1=" " ind2=" ">
-          <subfield code="9">SLAC</subfield>
-          <subfield code="a">SLAC-PUB-16140</subfield>
-        </datafield>
-    ''' # record/1326454
+    snippet = (
+        '<datafield tag="037" ind1=" " ind2=" ">'
+        '  <subfield code="9">SLAC</subfield>'
+        '  <subfield code="a">SLAC-PUB-16140</subfield>'
+        '</datafield>'
+    )  # record/1326454
 
     expected = [
-        {'source': 'SLAC', 'value': 'SLAC-PUB-16140'}
+        {
+            'source': 'SLAC',
+            'value': 'SLAC-PUB-16140',
+        },
+    ]
+    result = hep.do(create_record(snippet))
+
+    assert validate(result['report_numbers'], subschema) is None
+    assert expected == result['report_numbers']
+
+    expected = [
+        {
+            '9': 'SLAC',
+            'a': 'SLAC-PUB-16140',
+        },
     ]
     result = hep2marc.do(result)
 
-    assert validate(result['arxiv_eprints'], subschema)
+    assert expected == result['037']
 
 
-@pytest.mark.xfail(reason='Schema 13')
 def test_arxiv_eprints_from_037__a_c_9_and_multiple_65017_a_2():
     schema = load_schema('hep')
     subschema = schema['properties']['arxiv_eprints']
 
-    snippet = '''
-        <record>
-          <datafield tag="037" ind1=" " ind2=" ">
-            <subfield code="9">arXiv</subfield>
-            <subfield code="a">arXiv:1702.00702</subfield>
-            <subfield code="c">math-ph</subfield>
-          </datafield>
-          <datafield tag="650" ind1="1" ind2="7">
-            <subfield code="a">math-ph</subfield>
-            <subfield code="2">arXiv</subfield>
-          </datafield><datafield tag="650" ind1="1" ind2="7">
-            <subfield code="a">gr-qc</subfield>
-            <subfield code="2">arXiv</subfield></datafield>
-        </record>
-    ''' # record/1511862
+    snippet = (
+        '<record>'
+        '  <datafield tag="037" ind1=" " ind2=" ">'
+        '    <subfield code="9">arXiv</subfield>'
+        '    <subfield code="a">arXiv:1702.00702</subfield>'
+        '    <subfield code="c">math-ph</subfield>'
+        '  </datafield>'
+        '  <datafield tag="650" ind1="1" ind2="7">'
+        '    <subfield code="a">math-ph</subfield>'
+        '    <subfield code="2">arXiv</subfield>'
+        '  </datafield>'
+        '  <datafield tag="650" ind1="1" ind2="7">'
+        '    <subfield code="a">gr-qc</subfield>'
+        '    <subfield code="2">arXiv</subfield>'
+        '  </datafield>'
+        '</record>'
+    )  # record/1511862
 
     expected = [
         {
-            # the first element is the one in 037__c
-            'categories': ['math-ph', 'gr-qc'],
+            'categories': [
+                'math-ph',
+                'gr-qc',
+            ],
             'value': '1702.00702'
         }
     ]
@@ -770,22 +746,34 @@ def test_arxiv_eprints_from_037__a_c_9_and_multiple_65017_a_2():
     assert validate(result['arxiv_eprints'], subschema) is None
     assert expected == result['arxiv_eprints']
 
-    expected = {
-        # 035 is discarded in hep.do, so it needs to be derived here
-        '035': [
-            {'9': 'arXiv', 'a': 'oai:arXiv.org:1702.00702'}
-        ],
-        '037': [
-            {'9': 'arXiv', 'a': 'arXiv:1702.00702', 'c': 'math-ph'}
-        ],
-        '65017': [
-            {'2': 'arXiv', 'a': 'math-ph'},
-            {'2': 'arXiv', 'a': 'gr-qc'}
-        ]
-    }
+    expected_035 = [
+        {
+            '9': 'arXiv',
+            'a': 'oai:arXiv.org:1702.00702',
+        },
+    ]
+    expected_037 = [
+        {
+            '9': 'arXiv',
+            'a': 'arXiv:1702.00702',
+            'c': 'math-ph',
+        },
+    ]
+    expected_65017 = [
+        {
+            '2': 'arXiv',
+            'a': 'math-ph',
+        },
+        {
+            '2': 'arXiv',
+            'a': 'gr-qc',
+        },
+    ]
     result = hep2marc.do(result)
 
-    assert expected == result
+    assert expected_035 == result['035']
+    assert expected_037 == result['037']
+    assert expected_65017 == result['65017']
 
 
 def test_languages_from_041__a():

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # This file is part of INSPIRE.
-# Copyright (C) 2014, 2015, 2016 CERN.
+# Copyright (C) 2014, 2015, 2016, 2017 CERN.
 #
 # INSPIRE is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,20 +29,148 @@ from functools import partial
 
 from dojson import utils
 
+from inspirehep.modules.references.processors import ReferenceBuilder
+from inspirehep.utils.helpers import force_force_list
+from inspirehep.utils.pubnote import build_pubnote
+from inspirehep.utils.record import get_value
+
 from ..model import hep, hep2marc
 from ...utils import (
+    force_single_element,
     get_int_value,
     get_recid_from_ref,
     get_record_ref,
 )
 
-from inspirehep.modules.references.processors import ReferenceBuilder
-from inspirehep.utils.pubnote import build_pubnote
-from inspirehep.utils.record import get_value
-from inspirehep.utils.helpers import force_force_list
-
 
 RE_VALID_PUBNOTE = re.compile(".*,.*,.*(,.*)?")
+
+
+@hep.over('document_type', '^980__')
+def document_type(self, key, value):
+    publication_types = [
+        'introductory',
+        'lectures',
+        'review',
+    ]
+
+    special_collections = [
+        'cdf-internal-note',
+        'cdf-note',
+        'cds',
+        'd0-internal-note',
+        'd0-preliminary-note',
+        'h1-internal-note',
+        'h1-preliminary-note',
+        'halhidden',
+        'hephidden',
+        'hermes-internal-note',
+        'larsoft-internal-note',
+        'larsoft-note',
+        'zeus-internal-note',
+        'zeus-preliminary-note',
+    ]
+
+    document_types = [
+        'book',
+        'note',
+        'report',
+        'proceedings',
+        'thesis',
+    ]
+
+    document_type = self.get('document_type', [])
+
+    a_values = force_force_list(value.get('a'))
+    for a_value in a_values:
+        normalized_a_value = a_value.strip().lower()
+
+        if normalized_a_value == 'arxiv':
+            continue  # XXX: ignored.
+        elif normalized_a_value == 'citeable':
+            self['citeable'] = True
+        elif normalized_a_value == 'core':
+            self['core'] = True
+        elif normalized_a_value == 'noncore':
+            self['core'] = False
+        elif normalized_a_value == 'published':
+            self['refereed'] = True
+        elif normalized_a_value == 'withdrawn':
+            self['withdrawn'] = True
+        elif normalized_a_value in publication_types:
+            self['publication_type'] = normalized_a_value
+        elif normalized_a_value in special_collections:
+            self.setdefault('special_collections', []).append(normalized_a_value.upper())
+        elif normalized_a_value == 'bookchapter':
+            document_type.append('book chapter')
+        elif normalized_a_value == 'conferencepaper':
+            document_type.append('conference paper')
+        elif normalized_a_value in document_types:
+            document_type.append(normalized_a_value)
+
+    c_value = force_single_element(value.get('c', ''))
+    normalized_c_value = c_value.strip().lower()
+
+    if normalized_c_value == 'deleted':
+        self['deleted'] = True
+
+    return document_type
+
+
+@hep2marc.over('980', '^citeable$')
+@utils.for_each_value
+def citeable2marc(self, key, value):
+    if value:
+        return {'a': 'Citeable'}
+
+
+@hep2marc.over('980', '^core$')
+@utils.for_each_value
+def core2marc(self, key, value):
+    if value:
+        return {'a': 'CORE'}
+
+    return {'a': 'NONCORE'}
+
+
+@hep2marc.over('980', '^deleted$')
+@utils.for_each_value
+def deleted2marc(self, key, value):
+    if value:
+        return {'c': 'DELETED'}
+
+
+@hep2marc.over('980', '^refereed$')
+@utils.for_each_value
+def referred2marc(self, key, value):
+    if value:
+        return {'a': 'Published'}
+
+
+@hep2marc.over('980', '^withdrawn$')
+@utils.for_each_value
+def withdrawn2marc(self, key, value):
+    if value:
+        return {'a': 'Withdrawn'}
+
+
+@hep2marc.over('980', '^publication_type$')
+@utils.for_each_value
+def publication_type2marc(self, key, value):
+    return {'a': value}
+
+
+@hep2marc.over('980', '^special_collections$')
+@utils.for_each_value
+def special_collections2marc(self, key, value):
+    return {'a': value}
+
+
+@hep2marc.over('980', '^document_type$')
+@utils.for_each_value
+def document_type2marc(self, key, value):
+    if value != 'article':
+        return {'a': value}
 
 
 @hep.over('references', '^999C5')

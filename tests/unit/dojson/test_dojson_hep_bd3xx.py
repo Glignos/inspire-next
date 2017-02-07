@@ -21,37 +21,3 @@
 # or submit itself to any jurisdiction.
 
 from __future__ import absolute_import, division, print_function
-
-import pytest
-
-from dojson.contrib.marc21.utils import create_record
-
-from inspire_schemas.utils import load_schema
-from inspirehep.dojson.hep import hep, hep2marc
-from inspirehep.dojson.utils import validate
-
-
-def test_book_series_from_490__a():
-    schema = load_schema('hep')
-    subschema = schema['properties']['book_series']
-
-    snippet = (
-        '<datafield tag="490" ind1=" " ind2=" ">'
-        '  <subfield code="a">Graduate Texts in Physics</subfield>'
-        '</datafield>'
-    )  # record/1508903
-
-    expected = [
-        {'title': 'Graduate Texts in Physics'},
-    ]
-    result = hep.do(create_record(snippet))
-
-    assert validate(result['book_series'], subschema) is None
-    assert expected == result['book_series']
-
-    expected = [
-        {'a': 'Graduate Texts in Physics'},
-    ]
-    result = hep2marc.do(result)
-
-    assert expected == result['490']

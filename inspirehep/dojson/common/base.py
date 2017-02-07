@@ -20,9 +20,11 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
-"""MARC 21 model definition."""
+"""Common DoJSON rules."""
 
 from __future__ import absolute_import, division, print_function
+
+import re
 
 from dojson import utils
 
@@ -44,8 +46,8 @@ from ..utils import (
 )
 
 
-@hep.over('acquisition_source', '^541..$')
-@hepnames.over('acquisition_source', '^541..$')
+@hep.over('acquisition_source', '^541..')
+@hepnames.over('acquisition_source', '^541..')
 def acquisition_source(self, key, value):
     def _get_source(value):
         sources = force_force_list(value.get('a'))
@@ -54,20 +56,34 @@ def acquisition_source(self, key, value):
 
         return force_single_element(sources_without_inspire_uid)
 
+    def _get_orcid(value):
+        orcids = force_force_list(value.get('a'))
+        orcid = [el[6:] for el in orcids
+                 if re.match('^orcid:\\d{4}-\\d{4}-\\d{4}-\\d{3}[0-9X]$', el)]
+
+        return force_single_element(orcid)
+
     return {
         'date': value.get('d'),
         'email': value.get('b'),
         'method': value.get('c'),
         'source': _get_source(value),
         'submission_number': value.get('e'),
+        'orcid': _get_orcid(value),
     }
 
 
 @hep2marc.over('541', '^acquisition_source$')
 @hepnames2marc.over('541', '^acquisition_source$')
 def acquisition_source2marc(self, key, value):
+    def _get_a(value):
+        # ORCID has the priority over source
+        if value.get('orcid'):
+            return value.get('orcid')
+        return value.get('source')
+
     return {
-        'a': value.get('source'),
+        'a': _get_a(value),
         'b': value.get('email'),
         'c': value.get('method'),
         'd': value.get('date'),
@@ -91,59 +107,51 @@ hepnames.over('self', '^001')(self_url('authors'))
 jobs.over('self', '^001')(self_url('jobs'))
 
 
-@hep2marc.over('001', 'control_number')
-@hepnames2marc.over('001', 'control_number')
+@hep2marc.over('001', '^control_number$')
+@hepnames2marc.over('001', '^control_number$')
 def control_number2marc(self, key, value):
     """Record Identifier."""
     return value
 
 
-@hep.over('spires_sysnos', '^970..')
-@conferences.over('spires_sysnos', '^970..')
-@institutions.over('spires_sysnos', '^970..')
-@experiments.over('spires_sysnos', '^970..')
-@journals.over('spires_sysnos', '^970..')
-@hepnames.over('spires_sysnos', '^970..')
-@jobs.over('spires_sysnos', '^970..')
-@utils.ignore_value
-def spires_sysnos(self, key, value):
-    """Old SPIRES number and new_recid from 970."""
-    external_system_numbers = self.get('external_system_numbers', [])
-    value = force_force_list(value)
-    new_recid = None
-    for val in value:
-        for sysno in force_force_list(val.get('a')):
-            if sysno:
-                external_system_numbers.append(
-                    {
-                        "institute": "SPIRES",
-                        "value": sysno,
-                        "obsolete": True
-                    }
-                )
-        if 'd' in val:
-            new_recid = val.get('d')
-    if new_recid is not None:
-        self['new_record'] = get_record_ref(new_recid)
+@hep.over('external_system_identifiers', '^970..')
+@conferences.over('external_system_identifiers', '^970..')
+@institutions.over('external_system_identifiers', '^970..')
+@experiments.over('external_system_identifiers', '^970..')
+@journals.over('external_system_identifiers', '^970..')
+@hepnames.over('external_system_identifiers', '^970..')
+@jobs.over('external_system_identifiers', '^970..')
+def external_system_identifiers(self, key, value):
+    """Populate the ``external_system_identifiers`` key.
 
-    self['external_system_numbers'] = external_system_numbers
+    Also populates the ``new_record`` key through side effects.
+    """
+    external_system_identiers = self.get('external_system_identiers', [])
+    new_record = self.get('new_record', {})
 
+    values = force_force_list(value)
+    for value in values:
+        ids = force_force_list(value.get('a'))
+        for id_ in ids:
+            external_system_identiers.append({
+                'schema': 'SPIRES',
+                'value': id_,
+            })
 
-@hep2marc.over('970', 'new_record')
-@hepnames2marc.over('970', 'new_record')
-def spires_sysnos2marc(self, key, value):
-    """970 SPIRES number and new recid."""
-    value = force_force_list(value)
-    existing_values = self.get('970', [])
+        new_recid = force_single_element(value.get('d', ''))
+        if new_recid:
+            new_record = get_record_ref(new_recid)
 
-    val_recids = [get_recid_from_ref(val) for val in value]
-    existing_values.extend(
-        [{'d': val} for val in val_recids if val]
-    )
-    return existing_values
+    self['new_record'] = new_record
+    return external_system_identiers
 
 
-@hep.over('collections', '^980..')
+@hep2marc.over('970', '^new_record$')
+@hepnames2marc.over('970', '^new_record$')
+def new_record2marc(self, key, value):
+    return {'d': get_recid_from_ref(value)}
+
+
 @conferences.over('collections', '^980..')
 @institutions.over('collections', '^980..')
 @experiments.over('collections', '^980..')
@@ -151,7 +159,6 @@ def spires_sysnos2marc(self, key, value):
 @hepnames.over('collections', '^980..')
 @jobs.over('collections', '^980..')
 def collections(self, key, value):
-    """Collection this record belongs to."""
     def _get_collection(value):
         return {
             'primary': force_single_element(value.get('a')),
@@ -173,26 +180,20 @@ def collections(self, key, value):
     return collections
 
 
-@hep2marc.over('980', '^collections$')
 @hepnames2marc.over('980', '^collections$')
 @utils.for_each_value
 def collections2marc(self, key, value):
-    """Collection this record belongs to."""
     return {
         'a': value.get('primary'),
         'b': value.get('secondary'),
     }
 
 
-@hep2marc.over('980', '^deleted$')
 @hepnames2marc.over('980', '^deleted$')
 @utils.for_each_value
 def deleted2marc(self, key, value):
-    """Set Deleted value to marc xml."""
     if value:
-        return {
-            'c': 'DELETED',
-        }
+        return {'c': 'DELETED'}
 
 
 @hep.over('deleted_records', '^981..')
@@ -205,9 +206,6 @@ def deleted2marc(self, key, value):
 @utils.for_each_value
 @utils.ignore_value
 def deleted_records(self, key, value):
-    """Recid of deleted record this record is master for."""
-    # FIXME we are currently using the default /record API. Which might
-    # resolve to a 404 response.
     return get_record_ref(value.get('a'))
 
 
@@ -215,10 +213,7 @@ def deleted_records(self, key, value):
 @hepnames2marc.over('981', 'deleted_records')
 @utils.for_each_value
 def deleted_records2marc(self, key, value):
-    """Deleted recids."""
-    return {
-        'a': get_recid_from_ref(value)
-    }
+    return {'a': get_recid_from_ref(value)}
 
 
 @hep.over('fft', '^FFT..')
@@ -228,7 +223,6 @@ def deleted_records2marc(self, key, value):
 @journals.over('fft', '^FFT..')
 @utils.for_each_value
 def fft(self, key, value):
-    """Fulltext files attached to the record"""
     return {
         'url': value.get('a'),
         'docfile_type': value.get('t'),
@@ -242,7 +236,6 @@ def fft(self, key, value):
 @hep2marc.over('FFT', 'fft')
 @utils.for_each_value
 def fft2marc(self, key, value):
-    """Fulltext files attached to the record"""
     return {
         'a': value.get('url'),
         't': value.get('docfile_type'),
@@ -261,7 +254,6 @@ def fft2marc(self, key, value):
 @jobs.over('inspire_categories', '^65017')
 @utils.for_each_value
 def inspire_categories(self, key, value):
-    """Inspire categories."""
     schema = load_schema('elements/inspire_field')
     possible_sources = schema['properties']['source']['enum']
 
@@ -297,7 +289,6 @@ def inspire_categories(self, key, value):
 @journals.over('urls', '^856.[10_28]')
 @utils.for_each_value
 def urls(self, key, value):
-    """URL to external resource."""
     self.setdefault('urls', [])
 
     description = value.get('y')

@@ -22,17 +22,16 @@
 
 from __future__ import absolute_import, division, print_function
 
-import pytest
-
 from dojson.contrib.marc21.utils import create_record
 
-from inspire_schemas.api import load_schema
+from inspire_schemas.utils import load_schema
 from inspirehep.dojson.hep import hep, hep2marc
 from inspirehep.dojson.utils import validate
 
 
 def test_acquisition_source_from_541__a_c():
-    schema = load_schema('elements/acquisition_source')
+    schema = load_schema('hep')
+    subschema = schema['properties']['acquisition_source']
 
     snippet = (
         '<datafield tag="541" ind1=" " ind2=" ">'
@@ -47,7 +46,7 @@ def test_acquisition_source_from_541__a_c():
     }
     result = hep.do(create_record(snippet))
 
-    assert validate(result['acquisition_source'], schema) is None
+    assert validate(result['acquisition_source'], subschema) is None
     assert expected == result['acquisition_source']
 
     expected = {
@@ -60,7 +59,8 @@ def test_acquisition_source_from_541__a_c():
 
 
 def test_acquisition_source_from_541__double_a_b_c_e():
-    schema = load_schema('elements/acquisition_source')
+    schema = load_schema('hep')
+    subschema = schema['properties']['acquisition_source']
 
     snippet = (
         '<datafield tag="541" ind1=" " ind2=" ">'
@@ -77,10 +77,11 @@ def test_acquisition_source_from_541__double_a_b_c_e():
         'email': 'oliver.schlotterer@web.de',
         'method': 'submission',
         'submission_number': '504296',
+        'orcid': '0000-0002-1048-661X',
     }
     result = hep.do(create_record(snippet))  # no roundtrip
 
-    assert validate(result['acquisition_source'], schema) is None
+    assert validate(result['acquisition_source'], subschema) is None
     assert expected == result['acquisition_source']
 
     expected = {
@@ -129,10 +130,9 @@ def test_control_number_from_001():
     assert expected == result['001']
 
 
-@pytest.mark.xfail(reason='missing roundtrip')
-def test_external_system_numbers_from_970__a():
+def test_external_system_identifiers_from_970__a():
     schema = load_schema('hep')
-    subschema = schema['properties']['external_system_numbers']
+    subschema = schema['properties']['external_system_identifiers']
 
     snippet = (
         '<datafield tag="970" ind1=" " ind2=" ">'
@@ -142,15 +142,14 @@ def test_external_system_numbers_from_970__a():
 
     expected = [
         {
-            'institute': 'SPIRES',
-            'obsolete': True,
+            'schema': 'SPIRES',
             'value': 'SPIRES-10325093',
         },
     ]
     result = hep.do(create_record(snippet))
 
-    assert validate(result['external_system_numbers'], subschema) is None
-    assert expected == result['external_system_numbers']
+    assert validate(result['external_system_identifiers'], subschema) is None
+    assert expected == result['external_system_identifiers']
 
     expected = [
         {'a': 'SPIRES-10325093'},
@@ -160,10 +159,9 @@ def test_external_system_numbers_from_970__a():
     assert expected == result['970']
 
 
-@pytest.mark.xfail(reason='missing roundtrip')
-def test_external_system_numbers_from_970__double_a():
+def test_external_system_identifiers_from_970__double_a():
     schema = load_schema('hep')
-    subschema = schema['properties']['external_system_numbers']
+    subschema = schema['properties']['external_system_identifiers']
 
     snippet = (
         '<datafield tag="970" ind1=" " ind2=" ">'
@@ -174,20 +172,18 @@ def test_external_system_numbers_from_970__double_a():
 
     expected = [
         {
-            'institute': 'SPIRES',
-            'obsolete': True,
+            'schema': 'SPIRES',
             'value': 'SPIRES-9663061',
         },
         {
-            'institute': 'SPIRES',
-            'obsolete': True,
+            'schema': 'SPIRES',
             'value': 'SPIRES-9949933',
         },
     ]
     result = hep.do(create_record(snippet))
 
-    assert validate(result['external_system_numbers'], subschema) is None
-    assert expected == result['external_system_numbers']
+    assert validate(result['external_system_identifiers'], subschema) is None
+    assert expected == result['external_system_identifiers']
 
     expected = [
         {'a': 'SPIRES-9663061'},
@@ -198,7 +194,6 @@ def test_external_system_numbers_from_970__double_a():
     assert expected == result['970']
 
 
-@pytest.mark.xfail(reason='wrong roundtrip')
 def test_new_record_from_970__d():
     schema = load_schema('hep')
     subschema = schema['properties']['new_record']
@@ -215,60 +210,10 @@ def test_new_record_from_970__d():
     assert validate(result['new_record'], subschema) is None
     assert expected == result['new_record']
 
-    expected = {'d': '361769'}
+    expected = {'d': 361769}
     result = hep2marc.do(result)
 
     assert expected == result['970']
-
-
-def test_collections_from_980__a():
-    schema = load_schema('hep')
-    subschema = schema['properties']['collections']
-
-    snippet = (
-        '<datafield tag="980" ind1=" " ind2=" ">'
-        '  <subfield code="a">HEP</subfield>'
-        '</datafield>'
-    )  # record/1508886
-
-    expected = [
-        {'primary': 'HEP'},
-    ]
-    result = hep.do(create_record(snippet))
-
-    assert validate(result['collections'], subschema) is None
-    assert expected == result['collections']
-
-    expected = [
-        {'a': 'HEP'},
-    ]
-    result = hep2marc.do(result)
-
-    assert expected == result['980']
-
-
-def test_deleted_from_980__c():
-    schema = load_schema('hep')
-    subschema = schema['properties']['deleted']
-
-    snippet = (
-        '<datafield tag="980" ind1=" " ind2=" ">'
-        '  <subfield code="c">DELETED</subfield>'
-        '</datafield>'
-    )  # record/1508668/export/xme
-
-    expected = True
-    result = hep.do(create_record(snippet))
-
-    assert validate(result['deleted'], subschema) is None
-    assert expected == result['deleted']
-
-    expected = [
-        {'c': 'DELETED'},
-    ]
-    result = hep2marc.do(result)
-
-    assert expected == result['980']
 
 
 def test_deleted_records_from_981__a():

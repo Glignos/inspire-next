@@ -25,7 +25,7 @@
 from __future__ import absolute_import, division, print_function
 
 from .fields import (
-    bd01x09x,
+    bd0xx,
     bd1xx,
     bd20x24x,
     bd25x28x,
@@ -35,7 +35,7 @@ from .fields import (
     bd6xx,
     bd70x75x,
     bd76x78x,
-    bd84188x,
-    bd90x99x,
+    bd8xx,
+    bd9xx,
 )
 from .model import hep, hep2marc
