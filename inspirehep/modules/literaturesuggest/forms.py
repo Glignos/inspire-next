@@ -627,6 +627,11 @@ class LiteratureForm(INSPIREForm):
         """Constructor."""
         super(LiteratureForm, self).__init__(*args, **kwargs)
 
+        is_update = kwargs.pop('is_update', False)
+        if is_update:
+            self.orcid.widget = HiddenInput()
+            self.orcid.validators = []
+
         inspire_categories_schema = load_schema('elements/inspire_field.json')
         categories = inspire_categories_schema['properties']['term']['enum']
         self.subject.choices = [(val, val) for val in categories]
