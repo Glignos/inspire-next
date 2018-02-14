@@ -25,6 +25,7 @@
 from __future__ import absolute_import, division, print_function
 
 import gzip
+import logging
 import re
 import zlib
 from collections import Counter
@@ -33,7 +34,6 @@ from itertools import chain
 
 import click
 from celery import group, shared_task
-from dojson.contrib.marc21.utils import create_record
 from elasticsearch.helpers import bulk as es_bulk
 from elasticsearch.helpers import scan as es_scan
 from flask import current_app
@@ -42,6 +42,8 @@ from jsonschema import ValidationError
 from redis import StrictRedis
 from redis_lock import Lock
 from six import text_type
+from elasticsearch.helpers import scan
+from collections import defaultdict
 
 from invenio_db import db
 from invenio_indexer.api import RecordIndexer, current_record_to_index
@@ -50,11 +52,11 @@ from invenio_pidstore.models import PersistentIdentifier
 from invenio_search import current_search_client as es
 from invenio_search.utils import schema_to_index
 
+from inspire_matcher import match
 from inspire_dojson import marcxml2record
 from inspire_dojson.utils import get_recid_from_ref
 from inspire_utils.dedupers import dedupe_list
 from inspire_utils.helpers import force_list
-from inspire_utils.logging import getStackTraceLogger
 from inspire_utils.record import get_value
 from inspirehep.modules.pidstore.minters import inspire_recid_minter
 from inspirehep.modules.pidstore.utils import (
@@ -68,7 +70,7 @@ from inspirehep.utils.schema import ensure_valid_schema
 from .models import InspireProdRecords
 
 
-LOGGER = getStackTraceLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 CHUNK_SIZE = 100
 LARGE_CHUNK_SIZE = 2000
@@ -117,8 +119,8 @@ def remigrate_records(only_broken=True, skip_files=None):
     """
     if skip_files is None:
         skip_files = current_app.config.get(
-            'RECORDS_MIGRATION_SKIP_FILES',
-            False,
+             'RECORDS_MIGRATION_SKIP_FILES',
+             False,
         )
 
     query = db.session.query(InspireProdRecords)
@@ -136,8 +138,8 @@ def migrate(source, wait_for_results=False, skip_files=None):
     """Main migration function."""
     if skip_files is None:
         skip_files = current_app.config.get(
-            'RECORDS_MIGRATION_SKIP_FILES',
-            False,
+             'RECORDS_MIGRATION_SKIP_FILES',
+             False,
         )
 
     if source.endswith('.gz'):
@@ -172,8 +174,8 @@ def continuous_migration(skip_files=None):
     """Task to continuously migrate what is pushed up by Legacy."""
     if skip_files is None:
         skip_files = current_app.config.get(
-            'RECORDS_MIGRATION_SKIP_FILES',
-            False,
+             'RECORDS_MIGRATION_SKIP_FILES',
+             False,
         )
     redis_url = current_app.config.get('CACHE_REDIS_URL')
     r = StrictRedis.from_url(redis_url)
@@ -342,44 +344,234 @@ def record_insert_or_replace(json, skip_files=False):
 
 
 def migrate_and_insert_record(raw_record, skip_files=False):
-    """Migrate a record and insert it if valid, or log otherwise."""
+    """Convert a marc21 record to JSON and insert it into the DB."""
+    error = None
+
     try:
         json_record = marcxml2record(raw_record)
-        recid = json_record['control_number']
     except Exception as e:
         LOGGER.exception('Migrator DoJSON Error')
-        recid = _get_recid(raw_record)
-        _store_migrator_error(recid, raw_record, e)
-        return None
-
-    if '$schema' in json_record:
-        ensure_valid_schema(json_record)
-
-    try:
-        record = record_insert_or_replace(json_record, skip_files=skip_files)
-    except ValidationError as e:
-        pattern = u'Migrator Validator Error: {}, Value: %r, Record: %r'
-        LOGGER.error(pattern.format('.'.join(e.schema_path)), e.instance, recid)
-        _store_migrator_error(recid, raw_record, e)
-    except Exception as e:
-        LOGGER.exception('Migrator Record Insert Error')
-        _store_migrator_error(recid, raw_record, e)
+        error = e
+        recid = 'No recid extracted'
+        prod_record = None
     else:
+        if '$schema' in json_record:
+            ensure_valid_schema(json_record)
+
+        recid = json_record['control_number']
         prod_record = InspireProdRecords(recid=recid)
         prod_record.marcxml = raw_record
+
+    try:
+        if not error:
+            record = record_insert_or_replace(json_record, skip_files=skip_files)
+    except ValidationError as e:
+        # Aggregate logs by part of schema being validated.
+        pattern = u'Migrator Validator Error: {}, Value: %r, Record: %r'
+        LOGGER.error(pattern.format('.'.join(e.schema_path)), e.instance, recid)
+        error = e
+    except Exception as e:
+        # Receivers can always cause exceptions and we could dump the entire
+        # chunk because of a single broken record.
+        LOGGER.exception('Migrator Record Insert Error')
+        error = e
+
+    if error:
+        # Invalid record, will not get indexed.
+        error_str = u'{0}: Record {1}: {2}'.format(type(error), recid, e)
+        if prod_record:
+            prod_record.valid = False
+            prod_record.errors = error_str
+            db.session.merge(prod_record)
+
+        return None
+    else:
         prod_record.valid = True
         db.session.merge(prod_record)
         return record
 
 
-def _get_recid(raw_record):
-    return int(create_record(raw_record)['001'])
+@shared_task()
+def clean_erata_citations():
+    def match_reference(reference):
+        if reference.get('legacy_curated') and reference.get('recid'):
+            return reference['recid']
+
+        journal_title = get_value(reference, 'reference.publication_info.journal_title')
+        if journal_title in ['JCAP', 'JHEP']:
+            try:
+                if get_value(reference, 'reference.publication_info.year'):
+                    reference['reference']['publication_info']['year'] = str(
+                        reference['reference']['publication_info']['year'])
+                result = next(match(reference, config_for_jcap_and_jhep))
+                return result['_source']['control_number']
+            except StopIteration:
+                pass
+
+        try:
+            result = next(match(reference, config))
+            return result['_source']['control_number']
+        except StopIteration:
+            pass
+
+    citations = defaultdict(set)
+
+    with current_app.app_context():
+        search = scan(
+            es,
+            doc_type='hep',
+            index='records-hep',
+            query={
+                '_source': [
+                    'control_number',
+                    'references',
+                ],
+                'query': {
+                    'exists': {
+                        'field': 'references',
+                    },
+                },
+            },
+            scroll='2d',
+        )
+
+        with open('new-citations.tsv', 'w') as f:
+            for hit in search:
+                record = hit['_source']
+                control_number = record['control_number']
+                references = record['references']
+
+                for reference in references:
+                    expected = reference.get('recid') or 0
+                    result = match_reference(reference) or 0
+
+                    f.write('%d\t%d\t%d\t%r\n' % (control_number, expected, result, reference))
+
+                    if result:
+                        citations[result].add(control_number)
 
 
-def _store_migrator_error(recid, marcxml, error):
-    error_str = u'{0}: Record {1}: {2}'.format(type(error), recid, error)
-    prod_record = InspireProdRecords(recid=recid)
-    prod_record.valid = False
-    prod_record.marcxml = marcxml
-    prod_record.errors = error_str
-    db.session.merge(prod_record)
+
+config = {
+    'algorithm': [
+        {
+            'queries': [
+                {
+                    'path': 'reference.arxiv_eprint',
+                    'search_path': 'arxiv_eprints.value.raw',
+                    'type': 'exact',
+                },
+                {
+                    'path': 'reference.dois',
+                    'search_path': 'dois.value.raw',
+                    'type': 'exact',
+                },
+                {
+                    'path': 'reference.isbn',
+                    'search_path': 'isbns.value.raw',
+                    'type': 'exact',
+                },
+                {
+                    'path': 'reference.report_numbers',
+                    'search_path': 'report_numbers.value.fuzzy',
+                    'type': 'exact',
+                },
+                {
+                    'paths': [
+                        'reference.publication_info.journal_title',
+                        'reference.publication_info.journal_volume',
+                        'reference.publication_info.artid',
+                    ],
+                    'search_paths': [
+                        'publication_info.journal_title.raw',
+                        'publication_info.journal_volume',
+                        'publication_info.artid',
+                    ],
+                    'type': 'nested',
+                },
+                {
+                    'paths': [
+                        'reference.publication_info.journal_title',
+                        'reference.publication_info.journal_volume',
+                        'reference.publication_info.page_start',
+                    ],
+                    'search_paths': [
+                        'publication_info.journal_title.raw',
+                        'publication_info.journal_volume',
+                        'publication_info.page_start',
+                    ],
+                    'type': 'nested',
+                },
+            ],
+        },
+    ],
+    'doc_type': 'hep',
+    'index': 'records-hep',
+    'source': [
+        'control_number',
+    ]
+}
+
+config_for_jcap_and_jhep = {
+    'algorithm': [
+        {
+            'queries': [
+                {
+                    'path': 'reference.arxiv_eprint',
+                    'search_path': 'arxiv_eprints.value.raw',
+                    'type': 'exact',
+                },
+                {
+                    'path': 'reference.dois',
+                    'search_path': 'dois.value.raw',
+                    'type': 'exact',
+                },
+                {
+                    'path': 'reference.isbn',
+                    'search_path': 'isbns.value.raw',
+                    'type': 'exact',
+                },
+                {
+                    'path': 'reference.report_numbers',
+                    'search_path': 'report_numbers.value.fuzzy',
+                    'type': 'exact',
+                },
+                {
+                    'paths': [
+                        'reference.publication_info.journal_title',
+                        'reference.publication_info.journal_volume',
+                        'reference.publication_info.year',
+                        'reference.publication_info.artid',
+                    ],
+                    'search_paths': [
+                        'publication_info.journal_title.raw',
+                        'publication_info.journal_volume',
+                        'publication_info.year',
+                        'publication_info.artid',
+                    ],
+                    'type': 'nested',
+                },
+                {
+                    'paths': [
+                        'reference.publication_info.journal_title',
+                        'reference.publication_info.journal_volume',
+                        'reference.publication_info.year',
+                        'reference.publication_info.page_start',
+                    ],
+                    'search_paths': [
+                        'publication_info.journal_title.raw',
+                        'publication_info.journal_volume',
+                        'publication_info.year',
+                        'publication_info.page_start',
+                    ],
+                    'type': 'nested',
+                },
+            ],
+        },
+    ],
+    'doc_type': 'hep',
+    'index': 'records-hep',
+    'source': [
+        'control_number',
+    ]
+}
